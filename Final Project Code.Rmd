@@ -1,0 +1,533 @@
+---
+title: "Final Project - Shooting Incidents in Philadelphia"
+author: "Sam Giordano"
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+## Background
+
+First, I wanted to start by giving a little bit of background into gun violence in the country as well as in the city of Philadelphia. Everytown for Gun Safety is a group that advocates for gun reform and gun control in America. From there website I found some infographics that were shocking & gave a quick insight into gun violence in America. Every day 96 Americans are killed with guns and that makes Americans 25 times more likely to be shot and killed with a gun than people in other developed countries. Two infographics that go more in hand with what I will be looking at in this project relate to talk about gun violence and Black Americans. Firearms are the first leading cause of death for Black children and teens and Black Americans are 10 times more likely than White Americans to die by gun violence. (https://everytownresearch.org/gun-violence-america/) Next, I found some statistics about shootings in Philadelhpia from The Inquirer. From January 1, 2018 to December 5, 2018 there was 1296 shootings, a 14.39% increase from 2017, and of those there was 234 fatal shootings, a 16.42% increase from 2017. Narrowed down to a 30-day span from November 5 to December 5, 2018, there was 116 shootings, a 20.83% increase from 2017, and of those there were 22 shootings, a 69.23% increase from 2017.
+
+
+## The Data
+
+The data I used for this project I downloaded off of OpenDataPhilly, an online portal with access to hundreds of datasets related to the Philadelphia region. I also searched some other web sources for data initially, but I eventually came back to OpenDataPhilly where I found my data. The website has datasets broken down into categories. I started off by searching through some categories such as "Environment", "Health/Human Servies" and "Public Safety" because these are categories I find myself interested in. In the "Public Safety" category I came across a dataset titled "Shooting Victims". After further investigation, I found the dataset consisted of city-wide shooting incidents, including those involving police officers. The dataset goes from January 1, 2015 to the present day. The first thing I thought was that this dataset was very similar to the dataset from the Washington Post that we used for the Data Visualization Mini Project earlier in the year. The WP dataset consisted of only fatal officer involved shootings across the whole country, while the OpenDataPhilly dataset is any shooting regardless of fatality & officer involvement, & it is just within the city of Philadelphia. I did consider a few datasets I found on OpenDataPhilly, but I ultimately chose the "Shooting Victims" dataset because I have a close friend that lives in Philly who, at 22, has lost near 10 people to gun violence. I also uploaded the WP dataset so I could compare officer involved shootings over time between Philly & the entire country.
+
+```{r setup, message=FALSE}
+library(readr)
+library(maps)
+library(mapdata)
+library(tidyverse)
+
+shooting0 <- read_csv("/Users/samanthagiordano/Desktop/VU/FA 2018/MAT 8790/Final Project/shootings.csv")
+dim(shooting0)
+
+shoot_usa0 <- read_csv("/Users/samanthagiordano/Desktop/VU/FA 2018/MAT 8790/Final Project/fatal-police-shootings-data.csv")
+
+counties <- map_data("county")
+pa_county <- subset(counties, region == "pennsylvania")
+philly <- subset(pa_county, subregion == "philadelphia")
+```
+
+## Cleaning the Data
+
+When I began looking at the data, I noticed it needed some cleaning. I noted some possible carelessness in the data entry process as some of the the races or sexes were lowercase instead of uppercase, one entry had race and sex switched and there were 81 unique options for the wound variable where some were the same just spelt incorrectly/differently. I started by making all race and sex entries uppercase. I then fixed the switched entry. This entry originally had race = "M" and sex = "B" so I made it race = "B" and sex = "M". I then condensed the wound variable from the 81 unique cases to seven categories & NA. The seven categories I chose are arm, back/butt, face/head, leg, multi, shoulder and torso. Although these probably could have been combined even further I didn't want to condense down too much. I also noticed that there were two variables titled "outside" & "inisde" which were telling us the same information, so I dropped "inside". We also had two variables for the longitude of the incident & two variables for the latitude of the incident so I dropped "lng" & "lat" while I kept "point_x" & "point_y". I also decided to remove some of the variables that I knew I wasn't going to need & were also distracting me when looking at the data. Most of them are unique case identifying numbers. I removed "the_geom", "the_geom_webmercator" & "dc_key". Lastly, I took most of the 0/1 indicator variables and made them factors instead of integers.
+
+```{r}
+# Capitilazing b, w, m
+shooting0$race <- toupper(shooting0$race)
+shooting0$sex <- toupper(shooting0$sex)
+
+# Fixing entry where race=M and sex=B
+shooting0$race <- ifelse(shooting0$race=="M","B",shooting0$race)
+shooting0$sex <- ifelse(shooting0$sex=="B","M",shooting0$sex)
+
+# Combining wound into fewer categories
+shooting0$wound <- tolower(shooting0$wound)
+shooting0 %>% 
+  mutate(wound_new=ifelse(shooting0$wound=="65",NA,
+                   ifelse(grepl("shou",wound)==T,"shoulder",
+                   ifelse(grepl("leg",wound)==T,"leg",
+                   ifelse(grepl("thigh",wound)==T,"leg",
+                   ifelse(shooting0$wound %in% c("ankle","calf","feet","foot","knee"),"leg",
+                   ifelse(grepl("head",wound)==T,"face/head",
+                   ifelse(grepl("face",wound)==T,"face/head",
+                   ifelse(shooting0$wound %in% c("cheek","ear","eye","neck","nose","throat"), "face/head",
+                   ifelse(grepl("arm",wound)==T,"arm",
+                   ifelse(shooting0$wound %in% c("elbow","finger","hand","thumb","wrist"), "arm",
+                   ifelse(grepl("buttock",wound)==T,"back/butt",
+                   ifelse(shooting0$wound %in% c("back","butt","chest/back"), "back/butt",
+                   ifelse(shooting0$wound %in% c("mukti","mullti","mult","multi","multli","mutli"),"multi","torso")))))))))))))) %>% 
+  select(-wound) %>% 
+  rename(wound=wound_new) -> shooting1
+
+# Removing doubled & unneccessary variables
+shooting1 %>% 
+  select(-inside,-lng,-lat,-the_geom,-the_geom_webmercator,-dc_key) -> shooting1
+
+# Changing 0/1 variables to factors
+shooting1$latino <- as.factor(shooting1$latino)
+shooting1$outside <- as.factor(shooting1$outside)
+shooting1$fatal <- as.factor(shooting1$fatal)
+```
+
+## Separating Data into 2 Datasets
+
+One thing to note about this dataset is that it is a combination of two different datasets. The officer involved shooting entries come from the Philly Police OIS dataset, while the non-officer involved shootings are a separate dataset. Due to this fact, not all variables that are noted in non-officer involved shooting cases are noted in the officer involved cases. When I made this distinction I decided to split the overall shooting dataset into two separate datasets named "civilian" & "officer". In the "civilian" dataset I removed the variables titled "officer_involved", "offender_deceased" & "offender_injured" because they are unnecessary to this portion of the data. In the "officer" dataset there are many variables with mostly missing data but I did not want to remove all of them. The only variable I chose to remove from the "officer" dataset is "fatal" because I was worried it would interfere with the "offender_deceased" variable. Another note I made was in the officer involved shooting cases, "offender_deceased" and "offender_injured" are talking about the victim of the shooting who, from the police point of view, is the offender.
+
+```{r}
+shooting1 %>% 
+  filter(officer_involved=="N") %>% 
+  select(-officer_involved,-offender_deceased,-offender_injured) -> civilian
+dim(civilian)
+
+shooting1 %>% 
+  filter(officer_involved=="Y") %>% 
+  select(-fatal,-wound) -> officer
+dim(officer)
+```
+
+From the dimensions of each dataset we can see that there have been 4958 incidents of civilian shootings and 67 incidents of officer involved shootings from January 1, 2015 to November 26, 2018.
+
+## Officer Dataset
+
+Since there isn't much to the part of the dataset that describes officer involved shootings, I decided to do a few visualizations on what was available. I also wanted to compare fatal officer involved shootings in Philadelphia to fatal officer involved shootings for the entire country. This is where I used the Washington Post dataset because they both encompass the same amount of time (January 1, 2015 - present). The version I downloaded from the Washington Post goes up to December 10, 2018.
+
+```{r}
+noyes <- c("No","Yes")
+
+# Bar graph of offender_deceased
+no_p1 <- length(officer$offender_deceased[officer$offender_deceased=="N"])/length(officer$offender_deceased)
+yes_p1 <- length(officer$offender_deceased[officer$offender_deceased=="Y"])/length(officer$offender_deceased)
+ggplot(officer) + 
+  geom_bar(aes(offender_deceased)) + 
+  labs(x = "Victim Deceased?", y = NULL, title = "Whether Victim was Killed by Shooting",
+       subtitle = "Officer Involved Shootings") +
+  scale_x_discrete(labels=noyes) +
+  annotate("text", x=1, y=25, label=paste0(round(no_p1*100,digits=2),"%"),
+           size=4, fontface="bold", color="white") + 
+  annotate("text", x=2, y=25, label=paste0(round(yes_p1*100,digits=2),"%"),
+           size=4, fontface="bold") +
+  theme_bw()
+```
+
+This first visualization of the officer involved shootings tells us whether the victim died as a result of the shooting. 76.12% of the victims survived the shooting while 23.88% of the victims did die as a result.
+
+```{r}
+# Bar graph of offender_injured
+no_p2 <- length(officer$offender_injured[officer$offender_injured=="N"])/length(officer$offender_deceased)
+yes_p2 <- length(officer$offender_injured[officer$offender_injured=="Y"])/length(officer$offender_injured)
+ggplot(officer) + 
+  geom_bar(aes(offender_injured)) + 
+  labs(x = "Victim Injured?", y = NULL, title = "Whether Victim was Injured by Shooting",
+       subtitle = "Officer Involved Shootings") +
+  scale_x_discrete(labels=noyes) +
+  annotate("text", x=1, y=30, label=paste0(round(no_p2*100,digits=2),"%"),
+           size=4, fontface="bold") +
+  annotate("text", x=2, y=30, label=paste0(round(yes_p2*100,digits=2),"%"),
+           size=4, fontface="bold", color="white") +
+  theme_bw()
+```
+
+This next bar graph tells us if the victim was injured or not. 62.69% of the victims were injured from the shooting. I'm surprised that this value isn't higher becasue when you're involved in some kind of shooting you would expect to have some sort of injury from it.
+
+```{r}
+# Bar graph of year
+ggplot(officer) + 
+  geom_bar(aes(year)) +
+  labs(x = "Year", y= NULL, title = "Number of Shootings by Year",
+       subtitle = "Officer Involved Shootings") +
+  theme_bw()
+```
+
+This shows the breakdown of victims by year. As we can see 2015 and 2016 are around the same with the most, with a big drop in 2017. There is also a drop in 2018, but we have to remember that this dataset isn't complete for the year yet because it was downloaded in November. There is a possibility that the Philadelphia police implemented the use of body cameras around 2017 & that could explain the drop from about 26 victims in 2016 to about 14 victims in 2017. A pilot program for implementing body cameras throughout the Philadelphia police department was started in 2014, but only in North Philadelphia. It appears from my research that the rest of the Philadelphia police force wasn't outfitted with body cameras until sometime in mid-2017, which could still be reason for why we see the drop.
+
+```{r}
+# Separating date into month day year
+officer %>% 
+  separate(date_,into=c("year2","month","day"),sep="-") %>% 
+  select(-year2) -> officer
+
+# Bar graph of month
+months <- c("Jan","Feb","Mar","Apr","May","June","July","Aug","Sept","Oct","Nov","Dec")
+ggplot(officer) + 
+  geom_bar(aes(month)) +
+  labs(x = "Month", y = NULL, title = "Number of Victims by Month",
+       subtitle = "Officer Involved Shootings") +
+  scale_x_discrete(labels=months) +
+  theme_bw()
+```
+
+Here is a bar graph of the months in which victims were shot regardless of year. May and August have the most with September and April coming in after. It is no surprise to me that August is one of the highest being a summer month. What does surprise me about this graph is that July is so low.
+
+```{r}
+# Bar graph of district
+ggplot(officer) + 
+  geom_bar(aes(dist)) +
+  labs(x = "District", y = NULL, title = "Number of Victims by District",
+       subtitle = "Officer Involved Shootings") +
+  theme_bw()
+```
+
+This graph breaks down the victims by district. The top 7 (most violent) districts are the 39th with 8 shootings, the 18th with 7 shootings, and the 19th, 22nd, 24th, 25th and 35th all tied with 6 shootings. The 39th and the 35th districts are in the Northwest, the 18th and the 19th are in the Southwest, the 24th and 25th are in the East and the 22nd is Central.
+
+```{r}
+# Bar graph of sex
+genders <- c("Female","Male")
+f_p <- length(officer$sex[officer$sex=="F"])/length(officer$sex)
+m_p <- length(officer$sex[officer$sex=="M"])/length(officer$sex)
+ggplot(officer) + 
+  geom_bar(aes(sex)) +
+  labs(x = "Gender", y = NULL, title = "Number of Victims by Gender",
+       subtitle = "Officer Involved Shootings") +
+  scale_x_discrete(labels=genders) +
+  annotate("text", x=1, y=25, label=paste0(round(f_p*100,digits=2),"%"),
+           size=4, fontface="bold") +
+  annotate("text", x=2, y=25, label=paste0(round(m_p*100,digits=2),"%"),
+           size=4, fontface="bold", color="white") +
+  theme_bw()
+```
+
+This graph shows the breakdown of victims by gender. 98.51% of the victims are Male.
+
+```{r}
+# Comparing WP dataset to subset of officer dataset
+officer %>% 
+  filter(offender_deceased == "Y") -> officer1
+shoot_usa0 %>% 
+  separate(date, into=c("year","month","day"), sep="-") -> shoot_usa1
+
+
+ggplot(shoot_usa1) +
+  geom_bar(aes(year)) +
+  labs(x = "Year", y = NULL, title = "Number of Victims by Year",
+       subtitle = "Fatal Officer Involved Shootings (Country)") +
+  theme_bw()
+
+ggplot(officer1) + 
+  geom_bar(aes(year)) + 
+  labs(x = "Year", y = NULL, title = "Number of Victims by Year",
+       subtitle = "Fatal Officer Involved Shootings (Philly)") + 
+  theme_bw() +
+  expand_limits(y=c(1,6))
+
+shoot_usa1 %>% 
+  filter(city=="Philadelphia") -> shoot_usa2
+ggplot(shoot_usa2) +
+  geom_bar(aes(year)) +
+  labs(x = "Year", y = NULL, title = "Number of Victims by Year",
+       subtitle = "Fatal Officer Involved Shootings (Philly: WP)") +
+  theme_bw() +
+  expand_limits(y=c(1,6))
+```
+
+The last thing I wanted to do with the officer involved shootings is do some graphical comparisons to the shooting database offered by the Washington Post. First I had to further filter the officer dataset to only be fatal officer involved shootings, because that is what the Washington Post dataset encompasses. The first graph from this chunk is a bar graph of all fatal officer involved shootings in the entire country broken down by year. As we can see there isn't much of a difference in the number of shootings between each year. 2015 is the most with 2018 the least, up to now. The second graph is from my fatal officer involved data in Philly. Even without 2018 being over yet, it is the year with the highest number of fatal officer involved shootings, tied with 2016 at 5 victims. Comparing the first two graphs, we do not see the same trend in fatal officer involved shootings between the country and Philly. Next I took the Washington Post dataset and filtered out only shootings where the city was denoted "Philadelphia" then I graphed those victims by year. In my dataset, I have 16 Philly victims, while in the Washington Post dataset there are 14 Philly victims. Comparing the 2nd and 3rd graphs, although they are not ridiculously different, I am a little suspicious as to why they are not the same. I am also quite suspicious that the datasets do not have the same number of victims.
+
+## Civilian Dataset
+
+A majority of my visualizations are going to be in regards to the civilian dataset which is all shooting incidents not involving a police officer in Philadelphia since January 1, 2015. I am most interested in demographic breakdowns of the victims, race, Latino, sex and age, and location of shootings. I want to see if there are certain areas, districts or neighborhoods, where shootings occur most often. I also wanted to see if any race (speicifically Black Americans) are shot at more alarming rates than other races.
+
+```{r}
+# Separating out date
+civilian %>% 
+  separate(date_,into=c("year2","month","day"),sep="-") %>% 
+  select(-year2) -> civilian
+
+# Bar graph of year
+ggplot(na.omit(civilian)) + 
+  geom_bar(aes(year)) + 
+  labs(x="Year", y=NULL, title="Number of Victims by Year",
+       subtitle="Civilian Shootings") +
+  theme_bw()
+
+# Bar graph of year by race
+civilian %>% 
+  group_by(year,race) %>% 
+  summarise(num_race=n()) %>% 
+  group_by(year) %>% 
+  mutate(num_shot=sum(num_race)) %>% 
+  filter(race=="B") %>% 
+  mutate(prop=num_race/num_shot) -> prop_b
+
+ggplot(na.omit(civilian)) + 
+  geom_bar(aes(year,fill=race)) +
+  labs(x="Year", y=NULL, title="Number of Victims by Year by Race",
+       subtitle="Civilian Shootings") + 
+  theme_bw() +
+  theme(legend.title=element_blank()) +
+  scale_fill_discrete(labels=c("Asian","Black","White","NA")) +
+  annotate("text", x=2015, y=500, label=paste0(round(prop_b$prop[1]*100,digits=2),"%"),
+           size=4, fontface="bold") +
+  annotate("text", x=2016, y=500, label=paste0(round(prop_b$prop[2]*100,digits=2),"%"),
+           size=4, fontface="bold") +
+  annotate("text", x=2017, y=500, label=paste0(round(prop_b$prop[3]*100,digits=2),"%"),
+           size=4, fontface="bold") +
+  annotate("text", x=2018, y=500, label=paste0(round(prop_b$prop[4]*100,digits=2),"%"),
+           size=4, fontface="bold")
+```
+
+This first graph in this chunk is a bar graph of the number of victims by year. As we can see, 2016 had the most victims. As noted earlier, we also have to remember that this dataset is not complete for 2018 as it was downloaded at the end of November. It is possible that by the end of the year, 2018 could see the most shootings since the dataset was started in 2015. The second graph in this chunk is the first graph with now each bar broken down by the race of the victim. As we can see from 2015 to 2018 anywhere from 81% to almost 85% of the victims were Black. This is my first inclination that Black Americans are shot at alarming rates in Philadelphia.
+
+```{r}
+# Bar graph of month
+ggplot(civilian) + 
+  geom_bar(aes(month)) + 
+  labs(x="Month", y=NULL, title="Number of Victims by Month",
+       subtitle="Civilian Shootings") + 
+  scale_x_discrete(labels=months) + 
+  theme_bw()
+
+ggplot(na.omit(civilian)) + 
+  geom_bar(aes(month)) + facet_grid(cols = vars(year)) +
+  scale_x_discrete(labels=months) +
+  labs(x="Month", y=NULL, title="Number of Victims by Month",
+       subtitle="Civilian Shootings") +
+  theme_bw() +
+  theme(axis.text.x=element_text(angle=90, hjust=1)) 
+```
+
+This next bar graph is for number of victims by month. I wanted to see if there were any months where shootings seemed to occur more, regardless of the year. I expected to see the summer months being the most, and by no surprise, August and July are the months where the most shootings have happened. The second bar graph in this chunk is victims by month but faceting each by each year. In 2015 and 2016 the top 2 months are July and August, in 2017 the top 2 are September and July and in 2018 the top 2 are August and May, which again shows that the summer months tend to have the highest number of shootings.
+
+```{r}
+# Bar graph of sex
+totg <- length(na.omit(civilian$sex))
+female <- length(na.omit(civilian$sex[civilian$sex=="F"]))/totg
+male <- length(na.omit(civilian$sex[civilian$sex=="M"]))/totg
+
+ggplot(na.omit(civilian)) +
+  geom_bar(aes(sex)) + 
+  labs(x="Gender",y=NULL,title="Number of Victims by Gender",
+       subtitle="Civilian Shootings") +
+  scale_x_discrete(labels=genders) +
+  theme_bw() +
+  annotate("text", x=1, y=1000, label=paste0(round(female*100,digits=2),"%"),
+           size=4, fontface="bold") + 
+  annotate("text", x=2, y=2000, label=paste0(round(male*100,digits=2),"%"),
+           size=4, fontface="bold", color="white")
+```
+
+This next graph is a breakdown of the gender of the victims. About 92% of the victims were male while about 8% of the victims were female. I was not surprised by this fact as you usually hear about men being involved in gun violence as opposed to women.
+
+```{r}
+# Bar graph of race
+races <- c("Asian","Black","White","NA")
+totr <- length(civilian$race)
+A <- length(civilian$race[civilian$race=="A"])/totr
+B <- length(civilian$race[civilian$race=="B"])/totr
+W <- length(civilian$race[civilian$race=="W"])/totr
+
+ggplot(na.omit(civilian)) + 
+  geom_bar(aes(race),na.rm=T) +
+  labs(x="Race", y=NULL, title="Number of Victims by Race",
+       subtitle="Civilian Shootings") +
+  scale_x_discrete(labels=races) +
+  theme_bw() +
+  annotate("text",x=1, y=500, label=paste0(round(A*100,digits=2),"%"), 
+           size=4, fontface="bold") +
+  annotate("text", x=2, y=2000, label=paste0(round(B*100,digits=2),"%"), 
+           size=4, fontface="bold",color="white") +
+  annotate("text", x=3, y=1500, label=paste0(round(W*100,digits=2),"%"),
+           size=4, fontface="bold") 
+
+# Chi Square Goodness of Fit Test for Race Distribution
+counts_race <- c(33, 4115, 806, 4)
+probs_race <- c(0.074, 0.442, 0.448, .036)
+result_race <- chisq.test(counts_race,p=probs_race) 
+result_race
+```
+
+This bar graph is a breakdown of the victims race. Based on information from the source of the dataset, the levels of the race variable are Asian, Black, White, Native American and Other. As we can see, the victims only fall in the races Asian, Black and White while there are 4 victims with a missing race classification. 83.08% of all 4,958 non-officer involved shooting victims were Black, 16.43% were White and 0.75% were Asian. As of 2016, the race distribution of Philadelphia was reported as 44.8% White, 44.2% Black, 7.4% Asian, 0.8% Native American and 2.3% Other, while 2.4% are Mixed race. I wanted to see if the race distribution of the sample followed the race distribution of the city so I ran a Chi-Square Goodness of Fit Test. Before running the test and just looking at the statistics of the data, I believe I will reject the null. With a Chi-Square test statistic of 3064.5 and a p-value of 2.2 x 10^-16, we do in fact reject the null and say that the distribution of race of victims does not follow the race distribution of the city of Philadelphia. This means that this sample is not indicative of the population in terms of race. Again this is more indication to me that Black men/women are shot at much more alarming rates than other races, which unfortunately, does not surprise me.
+
+```{r}
+# Bar graph of latino
+totl <- length(na.omit(civilian$latino))
+lat <- length(na.omit(civilian$latino[civilian$latino==1]))/totl
+nonlat <- length(na.omit(civilian$latino[civilian$latino==0]))/totl
+
+ggplot(na.omit(civilian)) + 
+  geom_bar(aes(latino)) +
+  labs(x="Latino?", y=NULL, title="Latino Breakdown of Victims",
+       subtitle="Civilian Shootings") +
+  scale_x_discrete(labels=noyes) +
+  theme_bw() +
+  annotate("text", x=1, y=2000, label=paste0(round(nonlat*100,digits=2),"%"),
+           size=4, fontface="bold", color="white") +
+  annotate("text", x=2, y=1000, label=paste0(round(lat*100,digits=2),"%"),
+           size=4, fontface="bold")
+
+# Chi Square Goodness of Fit Test for Latino Distribution
+counts_lat <- c(4349, 608)
+probs_lat <- c(.864,.136)
+result_lat <- chisq.test(counts_lat,p=probs_lat)
+result_lat
+```
+
+This bar graph shows the Latino breakdown of the victims. 87.73% of the victims are not Latino while 12.27% are Latino. Based on information I found, as of 2016, 13.6% of the Philadelphia population identifies as Hispanic and/or Latino. Like what I did with the race distribution, I ran a Chi-Square Goodness of Fit test to see if the sample Latino distribution followed the Philadelphia Latino distribution. With a Chi-Square test statistic of 7.513 and a p-value of 0.006125, we fail to reject the null. This means there is not enough evidence to say that sample distribution does not follow the city distribution. Therefore, I feel safe to say that this data is indicative of the population of Philadelphia in terms of Latino ethnicity.
+
+```{r}
+# Histogram of age 
+civilian$age <- as.integer(civilian$age)
+agemean <- mean(civilian$age,na.rm=T)
+ggplot(na.omit(civilian)) +
+  geom_histogram(aes(age),binwidth=1) +
+  geom_vline(xintercept = agemean,color="red",size=2) +
+  labs(x="Age", y=NULL, title="Histogram of Age of Victims (Missing 25 NA's)",
+       subtitle=paste0("Civilian Shootings, Mean Age is ",round(agemean,digits = 2))) +
+  theme_bw()
+summary(civilian$age)
+```
+
+Next, I wanted to look at the distribution of the age of the victims. First, I want to note there are 25 missing values. The ages range from 1 to 99 with a mean age of 28.79. Based on the histogram, we have a right skewed distribution as most of the victims fall below age 30. I am not shocked at the mean age, but I am shocked about the minimum and maximum. Due to the early issues in the data I wonder if the youngest victims were actually 1 or if that was a mistake; maybe the victims were actually teenagers and they didn't input the second number of the age, but if it is in fact correct, I am saddened by that. There is also a possibility that the young victims could have been self-inflicted gun shots. There are always stories of young children getting hold of household guns and having accidents. I am also saddened by the 99 year old victims. I think a possible explanation for there being 42 victims with age=99 is that they may have been missing because sometimes when data is missing they use values like -9 or 99, even though there are 25 instances where the age is NA. Since there have been instances with messy inputs there is a possibility some people left the age blank or used some value to denote it was missing. I have checked the information from the data, but there was no indication on what method was used.
+
+```{r}
+# Bar graph of district
+civilian %>% 
+  group_by(dist) %>% 
+  summarise(num_shot=n()) %>% 
+  ggplot() +
+  geom_bar(aes(x=reorder(dist,num_shot),y=num_shot),stat="identity") +
+  labs(x="District", y=NULL, title="Number of Victims by District",
+       subtitle="Civilian Shootings") +
+  theme_bw()
+
+civilian %>% 
+  group_by(dist,year) %>% 
+  summarise(num_shot=n()) %>% 
+  ggplot() +
+  geom_bar(aes(x=reorder(dist,num_shot),y=num_shot,fill=year),stat="identity") +
+  labs(x="District", y=NULL, title="Number of Victims by District & Year",
+       subtitle="Civilian Shootings") +
+  theme_bw() +
+  guides(fill=guide_legend(title="Year"))
+```
+
+In this chunk we have bar graphs that show the number of victims by district. The top 5 districts (with the most shootings) are the 25th, 22nd, 24th, 35th and 39th. We saw these same districts in the top 5 for officer involved shootings. Again, the 25th and 24th districts are in the East, the 35th and 39th are in the Northwest and the 22nd is Central. After doing some research online about Philadelphia districts, I discovered that the 5 most violent districts are all in the same general area and every one of these districts shares at least one border with at least one of the other districts. Also, all Southwest districts (19, 18, 16 & 12) all have had 200 or more shootings since 2015, and 3 of the 4 Northwest districts (14, 35 & 39) have had 300 or more shootings since 2015. This leads me to believe that the Southwest and Northwest regions of Philadelphia may tend to be the most violent. I also wanted to see how shootings per district have changed over time. The second bar graph is the first bar graph with each bar broken down by year. It appears that for each district there were just about the same number of shootings each year.
+
+```{r}
+# Bar graph of fatal
+totf <- length(na.omit(civilian$fatal))
+nonfat <- length(na.omit(civilian$fatal[civilian$fatal==0]))/totf
+fat <- length(na.omit(civilian$fatal[civilian$fatal==1]))/totf
+
+ggplot(na.omit(civilian)) + 
+  geom_bar(aes(fatal)) +
+  labs(x="Fatal?",y=NULL,title="Whether Shooting Was Fatal or Not",
+       subtitle="Civilian Shootings") +
+  scale_x_discrete(labels=noyes) +
+  theme_bw() +
+  annotate("text", x=1, y=1500, label=paste0(round(nonfat*100,digits=2),"%"),
+           size=4, fontface="bold", color="white") +
+  annotate("text", x=2, y=1500, label=paste0(round(fat*100,digits=2),"%"),
+           size=4, fontface="bold")
+
+civilian %>% 
+  filter(race=="B",fatal==1) %>% 
+  select(race,fatal) %>% 
+  summarise(num_dead_b=n()) -> num_dead_b
+civilian %>% 
+  filter(fatal==1) %>% 
+  summarise(num_dead=n()) -> num_dead
+prop_dead_b <- num_dead_b/num_dead
+
+ggplot(civilian) + 
+  geom_bar(aes(fatal,fill=race)) +
+  labs(x="Fatal?", y=NULL, title="Whether Shooting Was Fatal or Not by Race",
+       subtitle="Civilian Shootings") + 
+  scale_x_discrete(labels=noyes) + 
+  theme_bw() +
+  annotate("text", x=2, y=500, label=paste0(round(prop_dead_b*100,digits=2),"%"),
+           size=4, fontface="bold") +
+  theme(legend.title=element_blank()) +
+  scale_fill_discrete(labels=c("Asian","Black","White","NA"))
+```
+
+This chunk shows bar graphs about the status of the victim post shooting. 82.15% of the victims were not killed as a result of the shooting, which although they were still shot, is better than the reverse. Even though this statistic can be considered a "good" one, I was actually quite surprised by this. Based on the personal stories of friends of mine that have grown up and live in Philadelphia, I expected the death toll to be higher. The second graph is the first graph with each bar broken down by race. Of the 17.85% of victims who were killed as a result of the shooting, 81.58% of them were Black. Again, this supports the idea I have discovered in earlier graphs that Black Americans are shot & killed more often than other races.
+
+```{r}
+# Bar graph of wound
+ggplot(civilian) + 
+  geom_bar(aes(wound)) +
+  labs(x="Wound Area",y=NULL,title="Number of Victims by Wound",
+       subtitle="Civilian Shootings") +
+  theme_bw()
+
+civilian %>% 
+  group_by(wound) %>% 
+  summarise(num=n()) %>% 
+  mutate(prop=num/sum(num)*100) -> wound_table
+wound_table
+```
+
+This graph is a bar graph of the area of the wound. As I talked about earlier when I was data cleaning I condensed the levels of this variable down to the 7 we have in the graph and NA. As you can see from the chart, most wounds occur in the leg with multiple wounds falling close behind. Then we have face/head and torso coming in at 3rd and 4th. I expected to see more in the torso and back/butt area but I am not completely surprised by the information in this plot. 
+
+```{r}
+# Bar graph of outside
+toto <- length(civilian$outside)
+inside_p <- length(civilian$outside[civilian$outside==0])/toto
+outside_p <- length(civilian$outside[civilian$outside==1])/toto
+inout <- c("Inside","Outside")
+ggplot(civilian) +
+  geom_bar(aes(outside)) +
+  labs(x="Place",y=NULL,title="Where Victim Was Shot",
+       subtitle="Civilian Shootings") +
+  scale_x_discrete(labels=inout) +
+  theme_bw() +
+  annotate("text", x=1, y=1000, label=paste0(round(inside_p*100,digits=2),"%"),
+           size=4, fontface="bold") + 
+  annotate("text", x=2, y= 1500, label=paste0(round(outside_p*100,digits=2),"%"),
+           size=4, fontface="bold", color="white")
+```
+
+This last bar graph is a graph of whether the victims were shot inside or outside. A majority of victims were shot outside, which is no surprise, you don't hear too often about shootings that happen inside.
+
+## Maps
+
+```{r}
+# Map of officer involved shootings 
+ggplot() + 
+  geom_polygon(data=philly, aes(x=long, y=lat, group=group),
+               color="black", fill="gray") + 
+  geom_point(data=officer, na.rm=T, aes(x=point_x, y=point_y, 
+            color=offender_deceased), size=1) +
+  coord_fixed(1.3) + 
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        panel.border = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank(),
+        legend.title = element_blank()) +
+  scale_color_discrete(breaks=c("N","Y"), labels=c("Non-Fatal","Fatal")) +
+  labs(title = "Map of Philadelphia with Officer Involved Shootings")
+
+ggplot() + 
+  geom_polygon(data=philly, aes(x=long, y=lat, group=group),
+               color="black", fill="gray") +
+  geom_point(data=civilian, na.rm=T, aes(x=point_x, y=point_y, color=fatal, alpha=age), 
+             size=.5) +
+  coord_fixed(1.3)  +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        panel.border = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank()) +
+  guides(color=guide_legend(title="Status"), 
+         alpha=guide_legend(title="Age")) +
+  scale_color_discrete(breaks=c(0,1), labels=c("Non-Fatal","Fatal")) +
+  labs(title="Map of Philadelphia with Non-Officer Involved Shootings")
+```
+
+In this chunk, I mapped the city of Philadelphia and then added points for every shooting that occured in the city using the longitude and latitude (point_x and point_y) from the dataset. First, to create the map I used map_data to get a county dataset that breaks down every state into their counties. I filtered the data down to Pennsylvania and then further down to Philadelphia county. Then I created a geom_polygon using the latitude & longitude values. The first map I created, I then superimposed the longitude and latitude of every officer involved shooting. I also added the color aesthetic to show which of the shootings resulted in a fatality. As we can see there are a few groups of points but a pretty fair scatter. I believe this is because there is not many incidents in this dataset to begin with. There is also the one fatal shooting near the very top of the county that sticks out to me. In the second map I superimposed the longitude and latitude of every civilian shooting. I again added the color aesthetic to show which of the shootings resulted in a fatality, then I also added the alpha aesthetic for age. I wanted to make it slightly easier to see all the points because there are large groupings of some of the points. As we can see there are groupings of points in the Southwest, Central & Northwest. This supports what we found when we visualized the district variable. 
+
+## Challenges
+
+There wasn't much throughout this project that presented much of a challenge to me. I had to do some research into the best ways to edit and change around visualizations to make them look nice & add things to portray what I wanted to get across. The most challenging thing for me was getting a map of Philadelphia to map out the incidents. At first I wanted to use get_map and ggmap, but an API key is now required from Google to get a map & although I tried many things for quite some time, I could not figure it out. I was trying many other things that weren't seem to working when I found online that I could use map_data("county"). Then I also had to do some research how I could superimpose information from a different dataset onto the map but that was a quicker search. 
+
+## Conclusions
+
+With very little officer involved shooting data, there are not many conclusions to be drawn from my visualizations and analyses. One thing I did take away is that the frequency of shootings involving police officers tend to be decreasing over time. This is obviously a good fact because we do not want to see civilians being shot by police. There are more conclusions to be drawn from the civilian shooting data as there was more available data for these incidents. Based on my visualizations and analyses I would say that Blacks are shot & killed at greater rates than other races in the city of Philadelhpia. As I've stated in earlier descriptions, I am not surprised by this fact. Also, it appears that the frequency of shootings aren't getting greater/worsening over time, but they are also not getting better or lowering. Lastly, it appears that the Northwest and Southwest regions of Philadelhpia tend to be the most violent or at least where the most shooting incidents occur. As someone who is already in support of gun reform in this country, this project has helped further my support for that; though I don't think that is the only thing that is going to lower shooting incidents in this city. I think there also needs to be focus on education reform, poverty reduction, community/neighborhood restoration & starting a healthy conversation between civilians and the police in these neighborhoods among other things. About 26% of the city live below the federal poverty line, which is the highest among the nation's 10 largest cities. Also, 37% of the city's children less than 18 years of age are living below the federal poverty line, which is defined as an annual income of $19,337 for an adult living with 2 children. Also, half of all poor residents live in deep poverty which can be defined as living 50% below the federal poverty line. (https://www.pewtrusts.org/en/research-and-analysis/reports/2017/11/philadelphias-poor) As an example of community restoration, there was a study done in Philadelphia where vacant lots throughout the city were restored & residents in those neighborhoods reported reductions in crime and nuisances, while police reports reflected this. Police reports showed there was a 29% reduction in gun violence in the neighborhoods where the restoration occured. (https://phys.org/news/2018-02-crime-gun-violence-stabilize-neighborhoods.html) In the end, something definitely needs to be done to combat this every growing epidemic because we cannot keep losing people of all ages to these senseless acts of violence. 
+

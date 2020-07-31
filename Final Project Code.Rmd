@@ -1,6 +1,6 @@
 ---
 title: "Final Project - Shooting Incidents in Philadelphia"
-author: "Sam Giordano"
+author: "Samantha Giordano"
 output:
   word_document: default
   html_document:
